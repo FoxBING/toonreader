@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ToonReader</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="viewer">
+    <div id="strip"></div>
+  </div>
+
+  <div id="empty">
+    <div class="box">
+      <div class="big">📚</div>
+      <h1>把漫画文件夹拖进窗口</h1>
+      <p>图片按文件名自然排序，纵向连续滚动阅读</p>
+      <p class="dim">原图立即显示，后台自动用 waifu2x (cunet) 放大 ×2 并无缝替换，领先预加载 10 张</p>
+      <p class="dim" id="empty-hint">首次使用可点右上角 ⚙ 配置 waifu2x 路径（不配置也能看原图）</p>
+    </div>
+  </div>
+
+  <div id="overlay"><div class="inner">松开鼠标，打开这个文件夹</div></div>
+
+  <div id="hud" class="hidden">
+    <span id="pos" title="">– / –</span>
+    <button id="mode" title="切换 AI 放大模式 (A)">AI ×2</button>
+    <span id="stat">…</span>
+    <button id="gear" title="设置 (S)">⚙</button>
+  </div>
+
+  <div id="bar" class="hidden">
+    <input id="slider" type="range" min="0" max="0" value="0" step="1" />
+  </div>
+
+  <div id="settings" class="hidden">
+    <div class="card">
+      <h2>设置</h2>
+      <label class="chk">
+        <input id="s-enabled" type="checkbox" /> 启用 AI 放大（waifu2x ×2，默认关闭，可随时点顶栏按钮切换）
+      </label>
+      <label>waifu2x 程序路径（留空 = 自动检测同目录）
+        <input id="s-exe" type="text" placeholder="waifu2x-ncnn-vulkan.exe" spellcheck="false" />
+      </label>
+      <label>模型目录（留空 = 程序目录下的 models-cunet）
+        <input id="s-model" type="text" placeholder="models-cunet" spellcheck="false" />
+      </label>
+      <div class="row">
+        <label>降噪级别
+          <select id="s-noise">
+            <option value="-1">-1 不降噪</option>
+            <option value="0" selected>0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </label>
+        <label>预加载张数
+          <input id="s-preload" type="number" min="1" max="50" value="10" />
+        </label>
+        <label>GPU 序号
+          <input id="s-gpu" type="number" min="-1" max="8" value="-1" />
+        </label>
+        <label>Tile 大小
+          <input id="s-tile" type="number" min="0" max="1024" value="0" />
+        </label>
+      </div>
+      <label class="chk">
+        <input id="s-all" type="checkbox" /> 空闲时继续放大整本（预加载窗口跑完后不停）
+      </label>
+      <p id="s-detect" class="dim">正在检测 waifu2x…</p>
+      <p class="dim">放大结果缓存在 appdata，重新打开同一文件夹秒加载。cunet 模型画质最好但较慢，jpg 有压缩噪点时建议降噪 1~2。</p>
+      <div class="btns">
+        <button id="s-save" class="primary">保存</button>
+        <button id="s-close">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
