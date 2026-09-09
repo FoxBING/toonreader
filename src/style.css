@@ -176,6 +176,25 @@ html, body {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+#wall .hdel {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  border: none;
+  border-radius: 6px;
+  background: rgba(10, 10, 18, .78);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s ease, background .15s ease;
+}
+#wall .poster:hover .hdel { opacity: 1; }
+#wall .hdel:hover { background: #b23b32; color: #fff; }
 #wall .pname {
   margin-top: 8px;
   font-size: 14px;

@@ -228,6 +228,17 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // Remove one history card; optimistic, falls back to a re-fetch on error.
+  const removeRecent = useCallback(
+    (folder: string) => {
+      setRecents((r) => r.filter((h) => h.folder !== folder));
+      invoke("delete_history", { folder })
+        .then(() => toast("已从历史记录移除"))
+        .catch(() => refreshRecents());
+    },
+    [toast, refreshRecents]
+  );
+
   const refreshStats = useCallback(() => {
     invoke<Stats>("get_stats")
       .then(setStats)
@@ -495,6 +506,16 @@ export default function App() {
                     <span className="prog">
                       第 {Math.min(h.index + 1, h.total)} / {h.total} 张
                     </span>
+                    <button
+                      className="hdel"
+                      title="删除这条历史（不影响放大缓存）"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeRecent(h.folder);
+                      }}
+                    >
+                      ✕
+                    </button>
                   </div>
                   <div className="pname">{h.name || h.folder}</div>
                   <div className="ptime">{fmtTime(h.updated)}</div>

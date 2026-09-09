@@ -57,6 +57,11 @@ fn get_history(reader: tauri::State<'_, Arc<Reader>>) -> Vec<HistoryEntry> {
     reader.recents()
 }
 
+#[tauri::command]
+fn delete_history(reader: tauri::State<'_, Arc<Reader>>, folder: String) {
+    reader.delete_history(&folder);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -99,7 +104,8 @@ fn main() {
             get_stats,
             take_startup,
             refresh_sources,
-            get_history
+            get_history,
+            delete_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
