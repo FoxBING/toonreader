@@ -157,6 +157,8 @@ pub struct Manifest {
     pub cached: usize,
     /// Reading position saved from a previous session (0 = none).
     pub last_index: usize,
+    /// How far into last_index the reader was, 0..1.
+    pub last_frac: f64,
     pub images: Vec<ImageInfo>,
 }
 
@@ -164,8 +166,14 @@ pub struct Manifest {
 pub struct HistoryEntry {
     pub folder: String,
     pub name: String,
+    /// Path of the first image, used as the poster on the welcome page.
+    #[serde(default)]
+    pub cover: String,
     pub index: usize,
     pub total: usize,
+    /// Position inside the remembered image, 0..1 (0 = top edge).
+    #[serde(default)]
+    pub frac: f64,
     pub updated: u64,
 }
 
@@ -247,8 +255,9 @@ impl Reader {
         self.cv.notify_all();
     }
 
-    pub fn set_current(&self, index: usize) {
+    pub fn set_current(&self, index: usize, frac: f64) {
         self.current.store(index, Ordering::SeqCst);
+        let frac = frac.clamp(0.0, 1.0);
         let now = now_secs();
         {
             let f = self.folder.lock().unwrap();
@@ -258,8 +267,10 @@ impl Reader {
                 let e = h.entry(fd.hash.clone()).or_insert(HistoryEntry {
                     folder: String::new(),
                     name: String::new(),
+                    cover: String::new(),
                     index,
                     total,
+                    frac,
                     updated: now,
                 });
                 e.folder = fd.path.to_string_lossy().to_string();
@@ -268,8 +279,16 @@ impl Reader {
                     .file_name()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| e.folder.clone());
+                if e.cover.is_empty() {
+                    e.cover = fd
+                        .entries
+                        .first()
+                        .map(|en| en.path.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                }
                 e.index = index;
                 e.total = total;
+                e.frac = frac;
                 e.updated = now;
             }
         }
@@ -328,7 +347,7 @@ impl Reader {
         }
 
         let hash = folder_hash(&dir);
-        let cache_dir = data_dir(&self.app).join("cache").join(&hash);
+        let cache_dir = project_cache_dir().join(&hash);
         fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
 
         // name -> (size, mtime) of images already upscaled in a previous session
@@ -336,7 +355,7 @@ impl Reader {
             cache_dir.join("manifest.json"),
         )
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str::<HashMap<String, (u64, u64)>>(&s).ok())
         .unwrap_or_default();
 
         let mut entries = Vec::with_capacity(files.len());
@@ -368,13 +387,13 @@ impl Reader {
             .map(|(i, e)| image_info(i, e, use_hr))
             .collect();
 
-        let last_index = self
+        let (last_index, last_frac) = self
             .history
             .lock()
             .unwrap()
             .get(&hash)
-            .map(|h| h.index.min(entries.len() - 1))
-            .unwrap_or(0);
+            .map(|h| (h.index.min(entries.len() - 1), h.frac.clamp(0.0, 1.0)))
+            .unwrap_or((0, 0.0));
 
         {
             let mut f = self.folder.lock().unwrap();
@@ -395,6 +414,7 @@ impl Reader {
             total: images.len(),
             cached,
             last_index,
+            last_frac,
             images,
         })
     }
@@ -469,13 +489,13 @@ pub fn image_info(index: usize, e: &Entry, use_hr: bool) -> ImageInfo {
 
 /// Persist which (name, size, mtime) have finished upscales so cache survives restarts.
 pub fn write_manifest(fd: &FolderData) {
-    let arr: Vec<(String, u64, u64)> = fd
+    let map: HashMap<String, (u64, u64)> = fd
         .entries
         .iter()
         .filter(|e| matches!(e.status, St::Done(_)))
-        .map(|e| (e.name.clone(), e.size, e.mtime))
+        .map(|e| (e.name.clone(), (e.size, e.mtime)))
         .collect();
-    if let Ok(json) = serde_json::to_string(&arr) {
+    if let Ok(json) = serde_json::to_string(&map) {
         let _ = fs::write(fd.cache_dir.join("manifest.json"), json);
     }
 }
@@ -484,6 +504,26 @@ fn data_dir(app: &AppHandle) -> PathBuf {
     let dir = app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("."));
     let _ = fs::create_dir_all(&dir);
     dir
+}
+
+/// Upscale cache root: the project folder in dev, the exe folder in release.
+fn project_cache_dir() -> PathBuf {
+    #[cfg(debug_assertions)]
+    {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dir = root.parent().map(|p| p.join("cache")).unwrap_or(root.join("cache"));
+        let _ = fs::create_dir_all(&dir);
+        return dir;
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("cache")))
+            .unwrap_or_else(|| PathBuf::from("cache"));
+        let _ = fs::create_dir_all(&dir);
+        dir
+    }
 }
 
 fn config_path(app: &AppHandle) -> PathBuf {

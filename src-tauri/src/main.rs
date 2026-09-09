@@ -21,8 +21,8 @@ fn get_image(reader: tauri::State<'_, Arc<Reader>>, index: usize) -> Result<Imag
 }
 
 #[tauri::command]
-fn set_current(reader: tauri::State<'_, Arc<Reader>>, index: usize) {
-    reader.set_current(index);
+fn set_current(reader: tauri::State<'_, Arc<Reader>>, index: usize, frac: f64) {
+    reader.set_current(index, frac);
 }
 
 #[tauri::command]
