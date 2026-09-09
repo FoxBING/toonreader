@@ -69,6 +69,35 @@ async function init() {
   setInterval(refreshStats, 2000);
   refreshStats();
   updateModeUI();
+  renderRecents();
+}
+
+/* ---------- recent folders (empty screen) ---------- */
+
+async function renderRecents() {
+  try {
+    const list = await invoke('get_history');
+    const wrap = document.getElementById('recent');
+    const ul = document.getElementById('recent-list');
+    ul.innerHTML = '';
+    for (const h of list) {
+      const li = document.createElement('li');
+      const d = new Date(h.updated * 1000);
+      const p2 = (n) => String(n).padStart(2, '0');
+      const ts = `${d.getMonth() + 1}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+      const fname = document.createElement('span');
+      fname.className = 'fname';
+      fname.textContent = h.name || h.folder;
+      const fmeta = document.createElement('span');
+      fmeta.className = 'fmeta';
+      fmeta.textContent = `第 ${Math.min(h.index + 1, h.total)} / ${h.total} 张 · ${ts}`;
+      li.append(fname, fmeta);
+      li.title = h.folder;
+      li.addEventListener('click', () => openFolder(h.folder));
+      ul.appendChild(li);
+    }
+    wrap.classList.toggle('hidden', list.length === 0);
+  } catch { /* ignore */ }
 }
 
 /* ---------- upscale mode toggle ---------- */
@@ -166,10 +195,19 @@ function loadManifest(m) {
   hud.classList.remove('hidden');
   bar.classList.remove('hidden');
   slider.max = String(images.length - 1);
+
+  // Resume where the reader left off last time.
+  const target = (m.last_index > 0 && m.last_index < images.length) ? m.last_index : 0;
   viewer.scrollTop = 0;
   cur = -1;
-  setCurrent(0);
   render();
+  if (target > 0) {
+    viewer.scrollTop = offsets[target];
+    setCurrent(target);
+    toast(`已回到上次进度：第 ${target + 1} / ${images.length} 张`);
+  } else {
+    setCurrent(0);
+  }
   if (m.cached > 0) toast(`已放大缓存命中 ${m.cached}/${m.total} 张`);
 }
 

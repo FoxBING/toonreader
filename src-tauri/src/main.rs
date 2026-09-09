@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tauri::{Emitter, Manager};
 
-use state::{Config, ImageInfo, Manifest, Reader, Stats};
+use state::{Config, HistoryEntry, ImageInfo, Manifest, Reader, Stats};
 
 #[tauri::command]
 fn open_folder(reader: tauri::State<'_, Arc<Reader>>, path: String) -> Result<Manifest, String> {
@@ -52,8 +52,20 @@ fn refresh_sources(
     reader.refresh_sources()
 }
 
+#[tauri::command]
+fn get_history(reader: tauri::State<'_, Arc<Reader>>) -> Vec<HistoryEntry> {
+    reader.recents()
+}
+
 fn main() {
     tauri::Builder::default()
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if let Some(reader) = window.app_handle().try_state::<Arc<Reader>>() {
+                    reader.flush_history();
+                }
+            }
+        })
         .setup(|app| {
             let reader = Reader::new(app.handle().clone());
             worker::spawn(Arc::clone(&reader));
@@ -85,7 +97,8 @@ fn main() {
             save_settings,
             get_stats,
             take_startup,
-            refresh_sources
+            refresh_sources,
+            get_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

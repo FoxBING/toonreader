@@ -61,6 +61,7 @@ fn next_job(r: &Reader) -> Option<Job> {
     Some(Job { epoch: fd.epoch, index: target, input, output })
 }
 
+
 fn run_job(r: &Reader, job: Job) {
     let cfg = r.cfg.lock().unwrap().clone();
     let result = cfg.resolve_exe().map_or(Err("找不到 waifu2x".into()), |exe| {

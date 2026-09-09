@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -140,18 +141,32 @@ pub struct Entry {
 }
 
 pub struct FolderData {
+    pub path: PathBuf,
+    /// Hash key shared by the cache dir and the history entry.
+    pub hash: String,
     pub cache_dir: PathBuf,
     pub entries: Vec<Entry>,
     /// Bumped on every folder change so in-flight jobs can detect staleness.
     pub epoch: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Manifest {
     pub folder: String,
     pub total: usize,
     pub cached: usize,
+    /// Reading position saved from a previous session (0 = none).
+    pub last_index: usize,
     pub images: Vec<ImageInfo>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub folder: String,
+    pub name: String,
+    pub index: usize,
+    pub total: usize,
+    pub updated: u64,
 }
 
 #[derive(Serialize, Clone)]
@@ -173,11 +188,20 @@ pub struct Reader {
     pub child: Mutex<Option<Child>>,
     /// Folder opened via CLI arg, pulled by the frontend once it is ready.
     pub pending: Mutex<Option<Manifest>>,
+    /// Reading progress per folder hash, persisted to history.json.
+    pub history: Mutex<HashMap<String, HistoryEntry>>,
+    /// Unix seconds of the last history flush (throttle disk writes).
+    pub last_flush: AtomicU64,
 }
 
 impl Reader {
     pub fn new(app: AppHandle) -> Arc<Reader> {
         let cfg = load_config(&app).unwrap_or_default();
+        let history: HashMap<String, HistoryEntry> =
+            fs::read_to_string(history_path(&app))
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
         Arc::new(Reader {
             app,
             cfg: Mutex::new(cfg),
@@ -186,6 +210,8 @@ impl Reader {
             cv: Condvar::new(),
             child: Mutex::new(None),
             pending: Mutex::new(None),
+            history: Mutex::new(history),
+            last_flush: AtomicU64::new(0),
         })
     }
 
@@ -223,7 +249,53 @@ impl Reader {
 
     pub fn set_current(&self, index: usize) {
         self.current.store(index, Ordering::SeqCst);
+        let now = now_secs();
+        {
+            let f = self.folder.lock().unwrap();
+            if let Some(fd) = f.as_ref() {
+                let mut h = self.history.lock().unwrap();
+                let total = fd.entries.len();
+                let e = h.entry(fd.hash.clone()).or_insert(HistoryEntry {
+                    folder: String::new(),
+                    name: String::new(),
+                    index,
+                    total,
+                    updated: now,
+                });
+                e.folder = fd.path.to_string_lossy().to_string();
+                e.name = fd
+                    .path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| e.folder.clone());
+                e.index = index;
+                e.total = total;
+                e.updated = now;
+            }
+        }
         self.kick();
+        // Persist at most every 2 s; the close handler flushes the tail.
+        if now.saturating_sub(self.last_flush.load(Ordering::SeqCst)) >= 2 {
+            self.flush_history();
+        }
+    }
+
+    /// Force-write the history map to disk (window close, etc.).
+    pub fn flush_history(&self) {
+        let h = self.history.lock().unwrap().clone();
+        if let Ok(json) = serde_json::to_string(&h) {
+            let _ = fs::write(history_path(&self.app), json);
+        }
+        self.last_flush.store(now_secs(), Ordering::SeqCst);
+    }
+
+    /// Most recently read folders, newest first.
+    pub fn recents(&self) -> Vec<HistoryEntry> {
+        let h = self.history.lock().unwrap();
+        let mut v: Vec<_> = h.values().cloned().collect();
+        v.sort_by(|a, b| b.updated.cmp(&a.updated));
+        v.truncate(20);
+        v
     }
 
     pub fn open_folder(&self, path: &str) -> Result<Manifest, String> {
@@ -255,12 +327,8 @@ impl Reader {
             let _ = c.wait();
         }
 
-        let cache_dir = {
-            let root = data_dir(&self.app).join("cache");
-            let mut hasher = DefaultHasher::new();
-            dir.to_string_lossy().hash(&mut hasher);
-            root.join(format!("{:016x}", hasher.finish()))
-        };
+        let hash = folder_hash(&dir);
+        let cache_dir = data_dir(&self.app).join("cache").join(&hash);
         fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
 
         // name -> (size, mtime) of images already upscaled in a previous session
@@ -300,10 +368,24 @@ impl Reader {
             .map(|(i, e)| image_info(i, e, use_hr))
             .collect();
 
+        let last_index = self
+            .history
+            .lock()
+            .unwrap()
+            .get(&hash)
+            .map(|h| h.index.min(entries.len() - 1))
+            .unwrap_or(0);
+
         {
             let mut f = self.folder.lock().unwrap();
             let epoch = f.as_ref().map(|fd| fd.epoch + 1).unwrap_or(1);
-            *f = Some(FolderData { cache_dir, entries, epoch });
+            *f = Some(FolderData {
+                path: dir.clone(),
+                hash,
+                cache_dir,
+                entries,
+                epoch,
+            });
         }
         self.current.store(0, Ordering::SeqCst);
         self.kick();
@@ -312,6 +394,7 @@ impl Reader {
             folder: dir.to_string_lossy().to_string(),
             total: images.len(),
             cached,
+            last_index,
             images,
         })
     }
@@ -405,6 +488,23 @@ fn data_dir(app: &AppHandle) -> PathBuf {
 
 fn config_path(app: &AppHandle) -> PathBuf {
     data_dir(app).join("config.json")
+}
+
+fn history_path(app: &AppHandle) -> PathBuf {
+    data_dir(app).join("history.json")
+}
+
+fn folder_hash(dir: &Path) -> String {
+    let mut hasher = DefaultHasher::new();
+    dir.to_string_lossy().hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn load_config(app: &AppHandle) -> Option<Config> {
