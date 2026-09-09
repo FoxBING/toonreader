@@ -75,7 +75,7 @@ html, body {
   pointer-events: none;
 }
 
-/* ---------- empty state ---------- */
+/* ---------- empty state: recent history front and center ---------- */
 #empty {
   position: absolute;
   inset: 0;
@@ -86,37 +86,52 @@ html, body {
   pointer-events: none;
 }
 #empty .box {
-  padding: 48px 64px;
-  border: 2px dashed #35354d;
-  border-radius: 16px;
   pointer-events: auto;
+  padding: 12px 20px;
 }
-#empty .big { font-size: 56px; margin-bottom: 8px; }
-#empty h1 { font-size: 20px; margin: 0 0 10px; font-weight: 600; }
-#empty p { margin: 4px 0; color: var(--text); }
-#empty .dim { color: var(--dim); font-size: 13px; }
-
-#recent { margin-top: 26px; text-align: left; max-width: 420px; }
-#recent h3 {
-  margin: 0 0 8px;
-  font-size: 12px;
+.recent-title {
+  margin: 0 0 18px;
+  font-size: 22px;
   font-weight: 600;
-  color: var(--dim);
-  text-transform: none;
 }
-#recent ul { list-style: none; margin: 0; padding: 0; }
-#recent li {
+#recent-list {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  width: min(600px, 84vw);
+  max-height: 58vh;
+  overflow-y: auto;
+  text-align: left;
+}
+#recent-list li {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 16px;
-  padding: 7px 10px;
-  border-radius: 8px;
+  padding: 13px 16px;
+  border-radius: 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 15px;
 }
-#recent li:hover { background: var(--panel-2); }
-#recent .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#recent .fmeta { color: var(--dim); font-size: 12px; white-space: nowrap; }
+#recent-list li:hover { background: var(--panel-2); }
+#recent-list .fname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#recent-list .fname::before { content: "📁 "; }
+#recent-list .fmeta {
+  color: var(--dim);
+  font-size: 13px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+#recent-empty, #drag-hint {
+  color: var(--dim);
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+#drag-hint { margin-top: 20px; }
 
 /* ---------- drag overlay ---------- */
 #overlay {

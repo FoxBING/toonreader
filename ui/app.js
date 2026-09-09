@@ -77,7 +77,6 @@ async function init() {
 async function renderRecents() {
   try {
     const list = await invoke('get_history');
-    const wrap = document.getElementById('recent');
     const ul = document.getElementById('recent-list');
     ul.innerHTML = '';
     for (const h of list) {
@@ -96,7 +95,7 @@ async function renderRecents() {
       li.addEventListener('click', () => openFolder(h.folder));
       ul.appendChild(li);
     }
-    wrap.classList.toggle('hidden', list.length === 0);
+    document.getElementById('recent-empty').classList.toggle('hidden', list.length > 0);
   } catch { /* ignore */ }
 }
 
