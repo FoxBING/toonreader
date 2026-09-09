@@ -11,7 +11,8 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "build:exe": "tauri build && node -e \"require('fs').copyFileSync('src-tauri/target/release/toonreader.exe','toonreader.exe')\""
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
