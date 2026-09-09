@@ -57,7 +57,7 @@ fn next_job(r: &Reader) -> Option<Job> {
     let e = &mut fd.entries[target];
     e.status = St::Running;
     let input = e.path.clone();
-    let output = fd.cache_dir.join(format!("{:05}.png", target));
+    let output = crate::state::out_path(&fd.cache_dir, target);
     Some(Job { epoch: fd.epoch, index: target, input, output })
 }
 
@@ -120,6 +120,7 @@ fn run_waifu2x(
         .arg("-n").arg(cfg.noise.to_string())
         .arg("-s").arg(cfg.scale.to_string())
         .arg("-m").arg(&model_dir)
+        .arg("-f").arg("webp")
         .arg("-j").arg("1:1:1")
         .stdout(Stdio::null())
         .stderr(Stdio::piped());

@@ -365,7 +365,7 @@ impl Reader {
             let (w, h) = imagesize::size(p)
                 .map(|d| (d.width as u32, d.height as u32))
                 .unwrap_or((800, 1200));
-            let out = cache_dir.join(format!("{:05}.png", i));
+            let out = out_path(&cache_dir, i);
             let hit = known
                 .get(&name)
                 .map(|(s, m)| *s == size && *m == mtime)
@@ -374,6 +374,8 @@ impl Reader {
                 St::Done(out.clone())
             } else {
                 let _ = fs::remove_file(&out);
+                // purge legacy png-era cache so it does not linger forever
+                let _ = fs::remove_file(cache_dir.join(format!("{:05}.png", i)));
                 St::Pending
             };
             entries.push(Entry { name, path: p.clone(), size, mtime, w, h, status });
@@ -532,6 +534,12 @@ fn config_path(app: &AppHandle) -> PathBuf {
 
 fn history_path(app: &AppHandle) -> PathBuf {
     data_dir(app).join("history.json")
+}
+
+/// Upscaled cache file for image `index` — webp keeps the cache far
+/// smaller than png for the same 2x output.
+pub fn out_path(cache_dir: &Path, index: usize) -> PathBuf {
+    cache_dir.join(format!("{:05}.webp", index))
 }
 
 fn folder_hash(dir: &Path) -> String {
