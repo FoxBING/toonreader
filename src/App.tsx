@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 /* ---------- types (mirror the Rust side) ---------- */
 
@@ -267,6 +268,20 @@ export default function App() {
     [loadManifest, toast]
   );
 
+  // Native folder picker (alternative to drag & drop).
+  const pickFolder = useCallback(async () => {
+    try {
+      const picked = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "选择漫画文件夹",
+      });
+      if (typeof picked === "string") openFolder(picked);
+    } catch (e) {
+      toast(String(e));
+    }
+  }, [openFolder, toast]);
+
   useEffect(() => {
     invoke<Config>("get_settings")
       .then((cfg) => setSettings(cfg))
@@ -393,6 +408,10 @@ export default function App() {
         setSettingsOpen(true);
         return;
       }
+      if (e.key === "o" || e.key === "O") {
+        pickFolder();
+        return;
+      }
       if (e.key === "a" || e.key === "A") {
         toggleMode();
         return;
@@ -416,7 +435,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [images.length, settingsOpen, toggleMode, goHome]);
+  }, [images.length, settingsOpen, toggleMode, goHome, pickFolder]);
 
   /* ---------- derived UI ---------- */
 
@@ -453,7 +472,12 @@ export default function App() {
       {!reading && (
         <div id="empty">
           <div className="box">
+            <div className="home-head">
             <h2 className="recent-title">最近阅读</h2>
+            <button id="open-btn" onClick={pickFolder}>
+              📂 打开文件夹
+            </button>
+          </div>
             <div id="wall">
               {recents.map((h) => (
                 <div
@@ -478,7 +502,7 @@ export default function App() {
               ))}
             </div>
             {recents.length === 0 && <p id="recent-empty">暂无阅读记录</p>}
-            <p id="drag-hint">把漫画文件夹拖进窗口即可阅读</p>
+            <p id="drag-hint">拖入文件夹，或点击上方按钮选择</p>
           </div>
         </div>
       )}
@@ -497,6 +521,13 @@ export default function App() {
           <span id="pos">
             {cur + 1} / {images.length}
           </span>
+          <button
+            id="openbtn"
+            title="打开文件夹 (O)"
+            onClick={pickFolder}
+          >
+            📂
+          </button>
           <button
             id="mode"
             className={settings?.upscale_enabled ? "on" : ""}

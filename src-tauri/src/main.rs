@@ -59,6 +59,7 @@ fn get_history(reader: tauri::State<'_, Arc<Reader>>) -> Vec<HistoryEntry> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if let Some(reader) = window.app_handle().try_state::<Arc<Reader>>() {
