@@ -51,40 +51,23 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Resolve the waifu2x executable: explicit path first, then probe
-    /// `<root>/waifu2x/` and `<root>/` for cwd / exe ancestors so the
-    /// repo-local copy works with zero config.
+    /// Resolve the waifu2x executable: explicit path first, then the
+    /// `waifu2x/` folder or a bare exe next to the app exe.
     pub fn resolve_exe(&self) -> Option<PathBuf> {
         let raw = self.waifu2x_path.trim();
         if !raw.is_empty() {
             let p = PathBuf::from(raw);
             return p.is_file().then_some(p);
         }
-        let mut roots: Vec<PathBuf> = Vec::new();
-        if let Ok(cwd) = std::env::current_dir() {
-            roots.push(cwd);
-        }
-        if let Ok(exe) = std::env::current_exe() {
-            let mut cur = exe.parent().map(|p| p.to_path_buf());
-            for _ in 0..5 {
-                match cur {
-                    Some(d) => {
-                        roots.push(d.clone());
-                        cur = d.parent().map(|p| p.to_path_buf());
-                    }
-                    None => break,
-                }
-            }
-        }
-        roots
-            .iter()
-            .flat_map(|r| {
-                [
-                    r.join("waifu2x").join("waifu2x-ncnn-vulkan.exe"),
-                    r.join("waifu2x-ncnn-vulkan.exe"),
-                ]
-            })
-            .find(|p| p.is_file())
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))?;
+        [
+            exe_dir.join("waifu2x").join("waifu2x-ncnn-vulkan.exe"),
+            exe_dir.join("waifu2x-ncnn-vulkan.exe"),
+        ]
+        .into_iter()
+        .find(|p| p.is_file())
     }
 
     pub fn resolve_model_dir(&self, exe: &Path) -> PathBuf {
@@ -317,6 +300,13 @@ impl Reader {
         v
     }
 
+    /// Drop the history entry for `folder` (welcome page delete button).
+    /// Only the record is removed; the upscale cache stays valid.
+    pub fn delete_history(&self, folder: &str) {
+        self.history.lock().unwrap().retain(|_, e| e.folder != folder);
+        self.flush_history();
+    }
+
     pub fn open_folder(&self, path: &str) -> Result<Manifest, String> {
         let dir = PathBuf::from(path);
         if !dir.is_dir() {
@@ -358,6 +348,7 @@ impl Reader {
         .and_then(|s| serde_json::from_str::<HashMap<String, (u64, u64)>>(&s).ok())
         .unwrap_or_default();
 
+        let scale = self.cfg.lock().unwrap().scale;
         let mut entries = Vec::with_capacity(files.len());
         for (i, p) in files.iter().enumerate() {
             let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
@@ -365,7 +356,7 @@ impl Reader {
             let (w, h) = imagesize::size(p)
                 .map(|d| (d.width as u32, d.height as u32))
                 .unwrap_or((800, 1200));
-            let out = out_path(&cache_dir, i);
+            let out = out_path(&cache_dir, i, w, h, scale);
             let hit = known
                 .get(&name)
                 .map(|(s, m)| *s == size && *m == mtime)
@@ -373,8 +364,8 @@ impl Reader {
             let status = if hit && out.is_file() {
                 St::Done(out.clone())
             } else {
-                let _ = fs::remove_file(&out);
-                // purge legacy png-era cache so it does not linger forever
+                // purge whichever variant lingers from a previous format decision
+                let _ = fs::remove_file(cache_dir.join(format!("{:05}.webp", i)));
                 let _ = fs::remove_file(cache_dir.join(format!("{:05}.png", i)));
                 St::Pending
             };
@@ -537,9 +528,12 @@ fn history_path(app: &AppHandle) -> PathBuf {
 }
 
 /// Upscaled cache file for image `index` — webp keeps the cache far
-/// smaller than png for the same 2x output.
-pub fn out_path(cache_dir: &Path, index: usize) -> PathBuf {
-    cache_dir.join(format!("{:05}.webp", index))
+/// smaller than png for the same 2x output. WebP caps a side at 16383px,
+/// so strips that would exceed it after scaling fall back to png
+/// (waifu2x would otherwise exit 0 without writing anything).
+pub fn out_path(cache_dir: &Path, index: usize, w: u32, h: u32, scale: u32) -> PathBuf {
+    let ext = if w.max(h).saturating_mul(scale) > 16383 { "png" } else { "webp" };
+    cache_dir.join(format!("{:05}.{ext}", index))
 }
 
 fn folder_hash(dir: &Path) -> String {
